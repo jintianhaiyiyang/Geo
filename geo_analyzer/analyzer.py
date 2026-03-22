@@ -1,8 +1,15 @@
-"""Semantic analyzer and recency filter."""
+"""Semantic analyzer and recency filter.
+
+Changes vs original:
+- Removed the JSON file write from analyze().  The pipeline already wrote
+  an identical file immediately after this call, making the write here a
+  wasted I/O round-trip.  result_file is still pre-computed and returned so
+  the pipeline can write to the correct path with its full metadata.
+- Removed `import json` (no longer needed after the above change).
+"""
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -413,9 +420,11 @@ class GeoKeywordAnalyzer:
         ]
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Pre-compute the result path so the pipeline can write to it; the actual
+        # write happens there (with full metadata attached) rather than here.
         result_file = os.path.join(outdir, f"geo_analysis_result_{timestamp}.json")
 
-        meta = {
+        meta: Dict[str, Any] = {
             "timestamp": timestamp,
             "total_articles": len(valid_articles),
             "advanced_only": self.advanced_only,
@@ -425,16 +434,13 @@ class GeoKeywordAnalyzer:
         if extra_meta:
             meta.update(extra_meta)
 
-        output_data = {
+        output_data: Dict[str, Any] = {
             "meta": meta,
             "top_keywords": top_keywords_records,
             "repeated_terms": repeated_terms_records,
             "selected_articles": valid_articles,
             "category_details": category_details_serialized,
         }
-
-        with open(result_file, "w", encoding="utf-8") as f:
-            json.dump(output_data, f, ensure_ascii=False, indent=2)
 
         self._print_report(repeated_terms_records[:20], category_details_serialized)
         return {
