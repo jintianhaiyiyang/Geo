@@ -1,187 +1,326 @@
-# Geo Keyword Analyzer v8.0 / 地理关键词分析器 v8.0
+# Geo Keyword Analyzer v8.0
 
-面向地理 / GIS / 遥感主题的自动化关键词检索、抓取、筛选、语义分析与可视化工具链，支持 `sync` / `async` / `stealth`（Playwright）三种抓取模式，并包含独立的高质量文章搜索分支（`quality_search`）。
+面向 **地理 / GIS / 遥感** 主题的自动化文章采集、语义分析与可视化工具链。
 
----
+包含两个独立工具：
 
-## 功能概览
-
-- 多源检索：`bing` / `baidu` / `wechat` / `serpapi`（可配置）。
-- 多抓取后端：`sync`、`async`、`stealth`（Playwright）。
-- 正文抽取：`trafilatura` / `bs4` / `auto`，并支持内容去重。
-- 语义分析：相关性过滤、advanced score、关键词统计、类别聚合。
-- 多格式输出：`CSV` / `JSON` / `HTML` / `PNG`。
-- 独立高质量分支：`quality_search`（与主流程统计隔离）。
+| 工具 | 用途 |
+|---|---|
+| `geo_keyword_analyzer_v8_0.py` | 多源搜索 → 抓取 → 语义分析 → 可视化报表 |
+| `wechat_mass_crawler.py` | 微信公众号文章**批量**采集（数百篇级别） |
 
 ---
 
-## 环境要求
+## 目录结构
 
-- Python `3.10+`
-- 推荐使用虚拟环境
-- 依赖安装：
+```
+Geo/
+├── geo_analyzer/                  # 核心包
+│   ├── analyzer.py                # 语义分析
+│   ├── pipeline.py                # 流程编排
+│   ├── searcher.py                # 多源搜索
+│   ├── crawler.py / crawler_async.py / crawler_stealth.py
+│   ├── config.py                  # 配置与校验
+│   └── ...
+├── tests/
+├── wechat_mass_crawler.py         # 微信批量采集工具（独立）
+├── geo_keyword_analyzer_v8_0.py   # 主程序入口
+├── geo_keyword_analyzer_v8.0.py   # 主程序（带点文件名）
+├── run_config.yaml                # 运行时配置
+├── requirements.txt
+└── requirements-dev.txt
+```
+
+---
+
+## 安装
+
+**Python 3.10+，推荐使用虚拟环境。**
 
 ```bash
+git clone <repo_url> && cd Geo
+
+python -m venv .venv
+source .venv/bin/activate          # Windows: .\.venv\Scripts\Activate.ps1
+
 pip install -r requirements-dev.txt
 ```
 
-如果需要使用 Stealth 抓取，请额外安装浏览器：
+如需使用 Stealth 抓取模式（Playwright）：
 
 ```bash
 python -m playwright install chromium
 ```
 
+如需使用微信批量采集工具：
+
+```bash
+pip install aiohttp tqdm trafilatura beautifulsoup4 requests
+```
+
 ---
 
-## 快速上手
+## 工具一：主分析器
 
-1. 克隆仓库并进入目录：
-
-```bash
-git clone <repo_url>
-cd <repo_dir>
-```
-
-2. 创建并激活虚拟环境：
+### 快速开始
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-# Windows PowerShell: .\.venv\Scripts\Activate.ps1
-```
-
-3. 安装依赖：
-
-```bash
-pip install -r requirements-dev.txt
-```
-
-4. 运行演示数据：
-
-```bash
+# 演示（使用内置样本数据）
 python geo_keyword_analyzer_v8_0.py --demo --outdir out
-```
 
-5. 查看完整 CLI 参数：
+# 全网搜索 + 分析（默认异步模式）
+python geo_keyword_analyzer_v8_0.py --search "GIS 遥感 最新技术" --outdir out
 
-```bash
+# 查看所有参数
 python geo_keyword_analyzer_v8_0.py --help
 ```
 
----
-
-## 常用运行示例
-
-全网搜索并分析（默认 `async`）：
+### 常用场景
 
 ```bash
-python geo_keyword_analyzer_v8_0.py --search "GIS 遥感 最新技术" --outdir out
-```
+# 只抓取，不分析（存入数据库备用）
+python geo_keyword_analyzer_v8_0.py \
+    --search "遥感 数据共享" --scrape-only --outdir out
 
-仅抓取（不分析）：
-
-```bash
-python geo_keyword_analyzer_v8_0.py --search "GIS 遥感 数据共享" --scrape-only --outdir out
-```
-
-仅基于数据库重建报表：
-
-```bash
+# 基于上次数据库记录重建报表（不重新抓取）
 python geo_keyword_analyzer_v8_0.py --report-only --outdir out
+
+# 分析本地 JSON 文件
+python geo_keyword_analyzer_v8_0.py --input raw_crawl.json --outdir out
+
+# 限定时间窗口（只保留最近一个月文章）
+python geo_keyword_analyzer_v8_0.py \
+    --search "GIS 遥感" --time-preset month --outdir out
+
+# 自定义日期范围
+python geo_keyword_analyzer_v8_0.py \
+    --search "GIS 遥感" --date-from 2026-01-01 --date-to 2026-03-01 --outdir out
+
+# Stealth 模式 + 代理（绕过反爬）
+python geo_keyword_analyzer_v8_0.py \
+    --search "GIS 遥感 最新技术" \
+    --crawl-mode stealth \
+    --stealth-channel chrome \
+    --proxy-file proxies.txt \
+    --max-concurrency 3 \
+    --outdir out
 ```
 
-Stealth + 代理示例：
+### 抓取模式对比
+
+| 模式 | 参数 | 速度 | 适用场景 |
+|---|---|---|---|
+| `async` | `--crawl-mode async`（默认） | 快 | 大多数公开页面 |
+| `sync` | `--crawl-mode sync` | 慢 | 调试、低并发 |
+| `stealth` | `--crawl-mode stealth` | 最慢 | 有强反爬的网站 |
+
+### 配置文件（`run_config.yaml`）
+
+关键配置项：
+
+```yaml
+search:
+  limit: 80              # 每次搜索抓取 URL 数量上限
+  recent_months: 6       # 只保留最近 N 个月的文章（0 = 不限）
+  request_delay: 1.2     # 请求间隔秒数
+
+pipeline:
+  crawl_mode: async      # async | sync | stealth
+
+network:
+  max_concurrency: 12    # 异步模式最大并发数
+  http_backend: auto     # auto | requests | httpx | curl_cffi
+
+providers:
+  enabled:               # 启用的搜索源
+    - bing
+    - baidu
+    - wechat
+    - serpapi            # 需要填写 api_key
+
+quality_search:
+  enabled: true          # 高质量文章分支（独立统计）
+```
+
+启用 SerpApi 时需补充 key：
+
+```yaml
+search:
+  providers:
+    serpapi:
+      enabled: true
+      api_key: "YOUR_SERPAPI_KEY"
+```
+
+### 输出文件
+
+每次运行结果保存至 `<outdir>/runs/<YYYYMMDD_HHMMSS>/`：
+
+```
+geo_analysis_result_<ts>.json          # 完整分析结果（含所有元数据）
+keyword_stats_<ts>.csv                 # 关键词频率统计
+article_stats_top100_<ts>.csv          # Top 100 文章评分
+top100_links_<ts>.md                   # Top 100 链接列表
+geo_dashboard_<ts>.html                # 交互式可视化仪表盘
+wordcloud_<ts>.png                     # 词云图
+knowledge_graph_<ts>.png               # 知识图谱
+high_quality_article_stats_top100_<ts>.csv   # 高质量分支 Top 100
+high_quality_top100_links_<ts>.md            # 高质量分支链接
+```
+
+### 数据库持久化
 
 ```bash
-python geo_keyword_analyzer_v8_0.py --search "GIS 遥感 最新技术" --crawl-mode stealth --stealth-channel chrome --proxy-file proxies.txt --max-concurrency 3
+# 默认数据库路径（运行目录下）
+geo_monitor_v8.db
+
+# 自定义路径
+python geo_keyword_analyzer_v8_0.py --search "..." --db-path /data/my.db
+
+# 关闭数据库写入
+python geo_keyword_analyzer_v8_0.py --search "..." --no-db-write
 ```
 
 ---
 
-## 配置要点（`run_config.yaml`）
+## 工具二：微信公众号批量采集
 
-运行时会基于默认配置并执行严格校验（`validate_config`），核心配置段如下：
+> **解决主分析器"搜不到多少文章"的问题。**  
+> 主分析器依赖搜索引擎，每次查询上限约 10 条。批量采集器直接读公众号文章列表，可轻松获取数百篇。
 
-- `search`：搜索超时、抓取超时、结果数量、时间窗口、provider 配置等。
-- `network`：HTTP 后端、并发控制、Stealth 子配置、重试与限流策略。
-- `analysis`：相关性与 advanced score 等分析阈值。
-- `storage`：SQLite 路径与持久化开关。
-- `quality_search`：高质量分支关键词与抓取规模控制。
+### 模式A：关键词多页搜索
 
-启用 `serpapi` 时，必须配置 `search.providers.serpapi.api_key`，否则会在配置校验阶段报错并终止运行。
-
----
-
-## 输出目录与结果文件
-
-每次运行输出到：
-
-```text
-<outdir>/runs/<YYYYMMDD_HHMMSS>/
-```
-
-常见产物：
-
-- `keyword_stats_<timestamp>.csv`：关键词统计
-- `article_stats_top100_<timestamp>.csv`：文章统计（Top100）
-- `top100_links_<timestamp>.md`：Top100 链接列表
-- `geo_dashboard_<timestamp>.html`：交互式仪表盘
-- `wordcloud_<timestamp>.png`：词云
-- `knowledge_graph_<timestamp>.png`：知识图谱
-- `geo_analysis_result_<timestamp>.json`：完整分析结果（含 `meta` 与 `quality_search` 区块）
-- `high_quality_article_stats_top100_<timestamp>.csv`：高质量分支统计
-- `high_quality_top100_links_<timestamp>.md`：高质量分支链接
-
----
-
-## 数据库与持久化
-
-- 默认 SQLite 文件：`geo_monitor_v8.db`
-- 可通过 `--db-path` 或 `storage.db_path` 覆盖路径
-- `--report-only` 依赖数据库中已有成功运行数据
-- `storage.enable_db_write = false` 时不会写入数据库
-
----
-
-## 测试与开发
-
-运行测试：
+适合：不固定账号，按话题广撒网。
 
 ```bash
+# 搜索 3 个关键词，每个翻 30 页（约 300 条链接）
+python wechat_mass_crawler.py keyword \
+    --keywords "GIS 遥感" "地理信息系统" "空间数据" \
+    --pages 30 \
+    --outdir wechat_out
+
+# 只采集链接，不抓正文（快 10 倍，用于先摸底）
+python wechat_mass_crawler.py keyword \
+    --keywords "GIS 遥感" \
+    --pages 50 --no-content \
+    --outdir wechat_out
+```
+
+### 模式B：公众号历史文章
+
+适合：已知目标账号，抓取其全部历史文章。
+
+```bash
+# 按账号名搜索，最多各取 300 篇
+python wechat_mass_crawler.py account \
+    --accounts "地理研究" "遥感与GIS" "中国测绘学会" \
+    --max 300 \
+    --outdir wechat_out
+
+# 指定 __biz 更精准（从该账号任意文章 URL 里复制）
+python wechat_mass_crawler.py account \
+    --accounts "地理研究:MzI4NTc5NzU4Mw==" \
+    --max 500 \
+    --outdir wechat_out
+```
+
+### 解锁历史文章 API（Cookie 模式）
+
+不带 Cookie 只能通过搜狗拿到最近几十篇。带微信 Cookie 后调用原生接口，可翻全部历史：
+
+1. 浏览器登录 `mp.weixin.qq.com`
+2. F12 → Network → 随便点一个请求 → 复制 `Cookie` 请求头的值
+3. 传入 `--cookies`：
+
+```bash
+python wechat_mass_crawler.py account \
+    --accounts "地理研究:MzI4NTc5NzU4Mw==" \
+    --max 1000 \
+    --cookies "pac_uid=xxx; uin=yyy; skey=zzz" \
+    --outdir wechat_out
+```
+
+### 参数说明
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `--pages` | 20 | 关键词模式每个词最多翻几页（每页约 10 篇） |
+| `--max` | 300 | 账号模式每个账号最多采集篇数 |
+| `--delay` | 2.0 | 请求间隔秒数，**不建议低于 1.5** |
+| `--concurrency` | 5 | 正文抓取异步并发数 |
+| `--no-content` | — | 只采集链接，不抓正文 |
+| `--cookies` | — | 微信 Cookie 字符串（解锁历史 API） |
+
+### 输出文件
+
+```
+wechat_out/
+├── links_only_<ts>.txt      # 采集到链接后立即保存（断点保护）
+├── articles_<ts>.json       # 完整文章数据（含正文）
+└── links_<ts>.txt           # 带标题、账号、时间的链接列表
+```
+
+### 与主分析器联动
+
+采集完成后，直接把 JSON 喂给主分析器做语义分析：
+
+```bash
+# 第一步：批量采集微信文章
+python wechat_mass_crawler.py keyword \
+    --keywords "GIS 遥感" --pages 40 --outdir wechat_out
+
+# 第二步：语义分析 + 生成报表
+python geo_keyword_analyzer_v8_0.py \
+    --input wechat_out/articles_<ts>.json \
+    --outdir out
+```
+
+---
+
+## 开发与测试
+
+```bash
+# 运行测试
 pytest -q
+
+# 代码检查
+ruff check .
+
+# 类型检查（可选）
+mypy geo_analyzer/
 ```
 
-建议在 CI 中至少包含：
+---
 
-- `pytest`
-- `ruff` 或 `flake8`
-- `mypy`（可选）
+## 常见问题
+
+**搜狗出现验证码，采集中断**  
+脚本检测到验证码会自动停止翻页，已采集的链接已写入 `links_only_*.txt`，稍后可继续处理。增大 `--delay`（建议 3.0 以上）可减少触发概率。
+
+**Playwright 找不到浏览器**  
+```bash
+python -m playwright install chromium
+```
+
+**SerpApi 配置报错**  
+在 `run_config.yaml` 中填写 `search.providers.serpapi.api_key`，或将 `enabled` 设为 `false`。
+
+**配置校验失败**  
+根据报错提示修正参数。常见原因：Stealth 的 `channel` 与 `executable_path` 同时设置、并发数超出范围。
+
+**`--report-only` 报"无数据"**  
+需要先有至少一次成功的完整运行（非 `--scrape-only`）写入数据库。
+
+**`aiohttp` 报 ImportError**  
+```bash
+pip install aiohttp
+```
+未安装时脚本会自动降级为同步模式，功能不受影响，速度会变慢。
 
 ---
 
-## 常见问题（Troubleshooting）
+## 安全注意事项
 
-- Playwright 报错找不到浏览器：执行 `python -m playwright install chromium`
-- 启用 `serpapi` 但未设置 `api_key`：补齐 `search.providers.serpapi.api_key`
-- 配置校验失败：根据报错修正参数组合（例如并发约束、Stealth 通道与可执行路径冲突）
-- 代理不可用：检查 `proxies.txt` 格式，并单独验证代理可连通性
-
----
-
-## 安全与隐私
-
-- 不要将带凭证的 `proxies.txt` 提交到公共仓库
-- `--insecure` 仅用于调试，不建议在生产环境使用
-- 建议在日志中掩码敏感字段（代理凭证、密钥等）
-
----
-
-## 关键文件
-
-- `geo_keyword_analyzer_v8_0.py`：无点文件名入口（兼容启动）
-- `geo_keyword_analyzer_v8.0.py`：主 CLI 与运行入口
-- `run_config.yaml`：运行时配置
-- `geo_analyzer/config.py`：默认配置与校验逻辑
-- `geo_analyzer/pipeline.py`：主流程编排
-- `geo_analyzer/analyzer.py`：语义分析逻辑
-- `tests/test_v8_quality_search.py`：高质量分支测试示例
+- 不要把含有凭证的 `proxies.txt`、Cookie 字符串或 API Key 提交到公开仓库
+- `--insecure` 会关闭 TLS 证书校验，仅用于本地调试
+- 建议在日志配置中掩码代理凭证等敏感字段
