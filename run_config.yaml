@@ -1,0 +1,97 @@
+# Runtime config for Geo Keyword Analyzer v7.0
+
+search:
+  timeout: 20
+  crawl_timeout: 20
+  request_delay: 1.2
+  limit: 80
+  recent_months: 6
+  include_undated: false
+  providers:
+    serpapi:
+      enabled: false
+      api_key: "YOUR_SERPAPI_KEY"
+      engine: "google"
+      gl: "cn"
+      hl: "zh-cn"
+
+network:
+  http_backend: "auto"
+  max_concurrency: 12
+  per_domain_concurrency: 4
+  stealth:
+    browser: "chromium"
+    channel: "chrome"
+    executable_path: ""
+    headless: true
+    max_concurrency: 3
+    per_domain_concurrency: 2
+    max_retries: 5
+    backoff_base_seconds: 3.0
+    backoff_max_seconds: 90.0
+    proxy_ban_ttl_seconds: 900
+    navigation_timeout_ms: 45000
+    network_idle_timeout_ms: 10000
+    humanize: true
+    use_stealth_plugin: true
+    launch_slow_mo_ms: 0
+    locale: "zh-CN"
+    timezone_id: "Asia/Shanghai"
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+    viewport:
+      width: 1920
+      height: 1080
+    proxies: []
+    proxy_file: ""
+    status_forcelist: [403, 407, 429, 500, 502, 503, 504]
+  retry:
+    max_retries: 4
+    backoff_factor: 1.2
+    status_forcelist: [403, 429, 500, 502, 503, 504]
+    respect_retry_after: true
+    host_cooldown_base_seconds: 8
+    host_cooldown_max_seconds: 300
+    host_forcelist_threshold: 2
+  rate_limit:
+    global_rps: 6.0
+    per_domain_rps: 1.8
+    jitter_ms_min: 50
+    jitter_ms_max: 180
+
+dedupe:
+  enable_url_dedupe: true
+  enable_content_hash_dedupe: true
+  enable_site_cache: true
+  site_cache_max_per_domain: 200
+
+extraction:
+  primary: "auto"
+  fallback: "bs4"
+  min_content_length: 120
+
+visualization:
+  format: "both"
+
+storage:
+  db_path: "geo_monitor_v7.db"
+  enable_db_write: true
+
+providers:
+  enabled: ["bing", "baidu", "wechat", "serpapi"]
+  experimental:
+    google: false
+    xiaohongshu: false
+    bilibili: false
+    douyin: false
+
+time_window:
+  preset: ""
+  date_from: ""
+  date_to: ""
+
+attachment_detection:
+  enabled: true
+  min_score: 1.5
+
+pipeline:
+  crawl_mode: "async"  # async | sync | stealth

@@ -1,0 +1,61 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and packaging artifacts
+build/
+dist/
+.eggs/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Test, lint, and type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+
+# Coverage outputs
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# IDE/editor settings
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Runtime output and logs
+out/
+runs/
+*.log
+
+# Local secrets/config overrides
+.env
+.env.*
+proxies*.txt
+run_config.local.yaml
+run_config.*.local.yaml
+
+# Browser automation caches
+ms-playwright/
+.playwright/
+
+# GitHub Actions workflows (ignore if not needed in this repo)
+.github/workflows/
