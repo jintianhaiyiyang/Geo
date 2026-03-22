@@ -9,6 +9,5 @@ import runpy
 
 
 if __name__ == "__main__":
-    target = Path(__file__).with_name("geo_keyword_analyzer_v6.5.py")
+    target = Path(__file__).with_name("geo_keyword_analyzer_v8.0.py")
     runpy.run_path(str(target), run_name="__main__")
-

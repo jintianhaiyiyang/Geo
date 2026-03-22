@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ENTRY = REPO_ROOT / "geo_keyword_analyzer_v6.5.py"
+ENTRY = REPO_ROOT / "geo_keyword_analyzer_v8_0.py"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 

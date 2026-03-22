@@ -1,4 +1,4 @@
-# Runtime config for Geo Keyword Analyzer v7.0
+# Runtime config for Geo Keyword Analyzer v8.0
 
 search:
   timeout: 20
@@ -73,7 +73,7 @@ visualization:
   format: "both"
 
 storage:
-  db_path: "geo_monitor_v7.db"
+  db_path: "geo_monitor_v8.db"
   enable_db_write: true
 
 providers:
@@ -92,6 +92,37 @@ time_window:
 attachment_detection:
   enabled: true
   min_score: 1.5
+
+quality_search:
+  enabled: true
+  general_keywords:
+    - "地理数据"
+    - "空间数据"
+    - "GIS数据"
+    - "数据分享"
+    - "数据发布"
+    - "数据共享"
+    - "数据链接"
+    - "地理模型"
+    - "大数据"
+  topic_keywords:
+    - "基础地理"
+    - "DEM"
+    - "地形"
+    - "地貌"
+    - "土壤"
+    - "土地利用"
+    - "土地覆盖"
+    - "生态环境"
+    - "气象"
+    - "水文"
+    - "人口"
+    - "GDP"
+    - "社会经济"
+  run_standalone_queries: true
+  run_combined_queries: true
+  per_query_limit: 3
+  max_total_urls: 120
 
 pipeline:
   crawl_mode: "async"  # async | sync | stealth

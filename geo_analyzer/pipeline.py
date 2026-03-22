@@ -1,4 +1,4 @@
-"""Pipeline orchestration for Geo Keyword Analyzer 7.0."""
+"""Pipeline orchestration for Geo Keyword Analyzer 8.0."""
 
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ from .attachments import annotate_articles_with_attachments
 from .crawler import SyncCrawler
 from .crawler_async import AsyncCrawler
 from .crawler_stealth import StealthCrawler
-from .dedupe import SiteCache, compute_content_hash
+from .dedupe import SiteCache, compute_content_hash, normalize_url
 from .extractors import ContentExtractor
 from .http_clients import AsyncHttpClient, HttpClientFacade
 from .rate_limiter import AsyncRateLimiter
-from .reports import generate_reports
+from .reports import generate_high_quality_reports, generate_reports
 from .searcher import WebSearcher
 from .storage import GeoMonitorStorage
 from .time_window import filter_articles_by_time_window, resolve_time_window
@@ -181,6 +181,257 @@ def _demo_articles() -> List[Dict[str, Any]]:
     ]
 
 
+def _build_quality_queries(base_query: str, quality_cfg: Dict[str, Any]) -> List[str]:
+    seen_keywords = set()
+    ordered_keywords: List[str] = []
+    for key in ("general_keywords", "topic_keywords"):
+        for raw in quality_cfg.get(key, []) or []:
+            keyword = str(raw or "").strip()
+            if not keyword or keyword in seen_keywords:
+                continue
+            seen_keywords.add(keyword)
+            ordered_keywords.append(keyword)
+
+    query_list: List[str] = []
+    seen_queries = set()
+    base = str(base_query or "").strip()
+    run_standalone = bool(quality_cfg.get("run_standalone_queries", True))
+    run_combined = bool(quality_cfg.get("run_combined_queries", True))
+
+    for keyword in ordered_keywords:
+        candidates: List[str] = []
+        if run_standalone:
+            candidates.append(keyword)
+        if run_combined and base:
+            candidates.append(f"{base} {keyword}")
+        for query in candidates:
+            normalized = query.strip()
+            if not normalized or normalized in seen_queries:
+                continue
+            seen_queries.add(normalized)
+            query_list.append(normalized)
+    return query_list
+
+
+def _collect_quality_urls(
+    *,
+    searcher: WebSearcher,
+    queries: List[str],
+    per_query_limit: int,
+    max_total_urls: int,
+    include_weixin: bool,
+    include_overseas: bool,
+    time_window: Optional[Dict[str, Any]],
+) -> Tuple[List[Dict[str, str]], List[Dict[str, Any]]]:
+    collected: List[Dict[str, str]] = []
+    query_stats: List[Dict[str, Any]] = []
+    seen_urls = set()
+
+    for query in queries:
+        remaining = max_total_urls - len(collected)
+        if remaining <= 0:
+            break
+        limit = max(1, int(per_query_limit))
+        current = searcher.search(
+            query,
+            limit=limit,
+            include_weixin=include_weixin,
+            include_overseas=include_overseas,
+            time_window=time_window,
+        )
+        added = 0
+        for item in current:
+            url = str(item.get("url", "") or "").strip()
+            if not url:
+                continue
+            dedupe_key = normalize_url(url) or url
+            if dedupe_key in seen_urls:
+                continue
+            seen_urls.add(dedupe_key)
+            normalized_item = dict(item)
+            normalized_item["query"] = query
+            collected.append(normalized_item)
+            added += 1
+            if len(collected) >= max_total_urls:
+                break
+
+        query_stats.append(
+            {
+                "query": query,
+                "requested_limit": limit,
+                "returned_urls": len(current),
+                "added_urls": added,
+            }
+        )
+        if len(collected) >= max_total_urls:
+            break
+
+    return collected, query_stats
+
+
+def _crawl_urls_with_mode(
+    *,
+    urls: List[Dict[str, str]],
+    config: Dict[str, Any],
+    dedupe_cfg: Dict[str, Any],
+    retry_cfg: Dict[str, Any],
+    verify_option,
+    logger: logging.Logger,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    crawler_metrics: Dict[str, Any] = {
+        "backend_usage": {},
+        "extractor_stats": {},
+        "crawl_stats": {},
+        "rate_limit_stats": {},
+        "proxy_stats": {},
+    }
+    if not urls:
+        return [], crawler_metrics
+
+    extractor = ContentExtractor(
+        primary=config["extraction"]["primary"],
+        fallback=config["extraction"]["fallback"],
+        min_content_length=config["extraction"]["min_content_length"],
+        logger=logger.getChild("extract"),
+    )
+    site_cache = SiteCache(max_per_domain=dedupe_cfg["site_cache_max_per_domain"]) if dedupe_cfg["enable_site_cache"] else None
+    crawl_mode = config["pipeline"]["crawl_mode"]
+    rate_cfg = config["network"]["rate_limit"]
+
+    if crawl_mode == "async":
+        async_http = AsyncHttpClient(
+            timeout=config["search"]["crawl_timeout"],
+            verify=verify_option,
+            retry_max_retries=retry_cfg["max_retries"],
+            retry_backoff_factor=retry_cfg["backoff_factor"],
+            status_forcelist=retry_cfg["status_forcelist"],
+            retry_respect_retry_after=retry_cfg["respect_retry_after"],
+            host_cooldown_base_seconds=retry_cfg["host_cooldown_base_seconds"],
+            host_cooldown_max_seconds=retry_cfg["host_cooldown_max_seconds"],
+            host_forcelist_threshold=retry_cfg["host_forcelist_threshold"],
+            logger=logger.getChild("http.async"),
+        )
+        fallback_http = HttpClientFacade(
+            backend=config["network"]["http_backend"],
+            timeout=config["search"]["crawl_timeout"],
+            verify=verify_option,
+            retry_max_retries=retry_cfg["max_retries"],
+            retry_backoff_factor=retry_cfg["backoff_factor"],
+            status_forcelist=retry_cfg["status_forcelist"],
+            retry_respect_retry_after=retry_cfg["respect_retry_after"],
+            host_cooldown_base_seconds=retry_cfg["host_cooldown_base_seconds"],
+            host_cooldown_max_seconds=retry_cfg["host_cooldown_max_seconds"],
+            host_forcelist_threshold=retry_cfg["host_forcelist_threshold"],
+            logger=logger.getChild("http.fallback"),
+        )
+        rate_limiter = AsyncRateLimiter(
+            global_rps=rate_cfg["global_rps"],
+            per_domain_rps=rate_cfg["per_domain_rps"],
+            jitter_ms_min=rate_cfg["jitter_ms_min"],
+            jitter_ms_max=rate_cfg["jitter_ms_max"],
+        )
+        crawler = AsyncCrawler(
+            async_http_client=async_http,
+            fallback_http_client=fallback_http,
+            extractor=extractor,
+            max_concurrency=config["network"]["max_concurrency"],
+            per_domain_concurrency=config["network"]["per_domain_concurrency"],
+            enable_url_dedupe=dedupe_cfg["enable_url_dedupe"],
+            site_cache=site_cache,
+            rate_limiter=rate_limiter,
+            logger=logger.getChild("crawler_async"),
+        )
+        articles = crawler.crawl(urls)
+        crawler_metrics = crawler.metrics()
+        return articles, crawler_metrics
+
+    if crawl_mode == "stealth":
+        stealth_cfg = config["network"]["stealth"]
+        rate_limiter = AsyncRateLimiter(
+            global_rps=rate_cfg["global_rps"],
+            per_domain_rps=rate_cfg["per_domain_rps"],
+            jitter_ms_min=rate_cfg["jitter_ms_min"],
+            jitter_ms_max=rate_cfg["jitter_ms_max"],
+        )
+        crawler = StealthCrawler(
+            extractor=extractor,
+            max_concurrency=stealth_cfg["max_concurrency"],
+            per_domain_concurrency=stealth_cfg["per_domain_concurrency"],
+            max_retries=stealth_cfg["max_retries"],
+            backoff_base_seconds=stealth_cfg["backoff_base_seconds"],
+            backoff_max_seconds=stealth_cfg["backoff_max_seconds"],
+            status_forcelist=stealth_cfg["status_forcelist"],
+            proxies=_load_stealth_proxies(stealth_cfg, logger.getChild("proxy")),
+            proxy_ban_ttl_seconds=stealth_cfg["proxy_ban_ttl_seconds"],
+            browser_name=stealth_cfg["browser"],
+            channel=stealth_cfg["channel"],
+            executable_path=stealth_cfg["executable_path"],
+            headless=stealth_cfg["headless"],
+            launch_slow_mo_ms=stealth_cfg["launch_slow_mo_ms"],
+            navigation_timeout_ms=stealth_cfg["navigation_timeout_ms"],
+            network_idle_timeout_ms=stealth_cfg["network_idle_timeout_ms"],
+            humanize=stealth_cfg["humanize"],
+            use_stealth_plugin=stealth_cfg["use_stealth_plugin"],
+            locale=stealth_cfg["locale"],
+            timezone_id=stealth_cfg["timezone_id"],
+            user_agent=stealth_cfg["user_agent"],
+            viewport=stealth_cfg["viewport"],
+            enable_url_dedupe=dedupe_cfg["enable_url_dedupe"],
+            site_cache=site_cache,
+            rate_limiter=rate_limiter,
+            logger=logger.getChild("crawler_stealth"),
+        )
+        articles = crawler.crawl(urls)
+        crawler_metrics = crawler.metrics()
+        return articles, crawler_metrics
+
+    crawl_http = HttpClientFacade(
+        backend=config["network"]["http_backend"],
+        timeout=config["search"]["crawl_timeout"],
+        verify=verify_option,
+        retry_max_retries=retry_cfg["max_retries"],
+        retry_backoff_factor=retry_cfg["backoff_factor"],
+        status_forcelist=retry_cfg["status_forcelist"],
+        retry_respect_retry_after=retry_cfg["respect_retry_after"],
+        host_cooldown_base_seconds=retry_cfg["host_cooldown_base_seconds"],
+        host_cooldown_max_seconds=retry_cfg["host_cooldown_max_seconds"],
+        host_forcelist_threshold=retry_cfg["host_forcelist_threshold"],
+        logger=logger.getChild("http.crawl"),
+    )
+    crawler = SyncCrawler(
+        http_client=crawl_http,
+        extractor=extractor,
+        request_delay=config["search"]["request_delay"],
+        enable_url_dedupe=dedupe_cfg["enable_url_dedupe"],
+        site_cache=site_cache,
+        logger=logger.getChild("crawler"),
+        show_progress=config["ui"]["progress_bar"],
+    )
+    articles = crawler.crawl(urls)
+    crawler_metrics = crawler.metrics()
+    return articles, crawler_metrics
+
+
+def _build_quality_top_summary(top_articles: List[Dict[str, Any]], limit: int = 10) -> List[Dict[str, Any]]:
+    summary: List[Dict[str, Any]] = []
+    for idx, article in enumerate(top_articles[: max(1, int(limit))], 1):
+        summary.append(
+            {
+                "rank": idx,
+                "title": str(article.get("title", "") or ""),
+                "url": str(article.get("url", "") or ""),
+                "source": str(article.get("source", "") or ""),
+                "publish_time": str(article.get("publish_time", "") or ""),
+                "search_query": str(article.get("search_query", "") or ""),
+            }
+        )
+    return summary
+
+
+def _attach_quality_search_payload(output_data: Dict[str, Any], quality_payload: Dict[str, Any]) -> None:
+    output_data["quality_search"] = quality_payload
+
+
 def run_pipeline(args, config: Dict[str, Any], logger: logging.Logger, verify_option):
     os.makedirs(args.outdir, exist_ok=True)
     run_outdir = _prepare_run_output_dir(os.path.abspath(args.outdir))
@@ -195,6 +446,7 @@ def run_pipeline(args, config: Dict[str, Any], logger: logging.Logger, verify_op
         "analysis_seconds": 0.0,
         "report_seconds": 0.0,
         "viz_seconds": 0.0,
+        "quality_search_seconds": 0.0,
         "total_seconds": 0.0,
     }
     total_start = time.perf_counter()
@@ -280,6 +532,19 @@ def run_pipeline(args, config: Dict[str, Any], logger: logging.Logger, verify_op
             selected_articles=selected_articles,
             repeated_terms=repeated_terms,
         )
+        quality_report_payload: Optional[Dict[str, Any]] = None
+        quality_payload = payload.get("quality_search")
+        quality_selected_articles = []
+        if isinstance(quality_payload, dict):
+            candidate = quality_payload.get("selected_articles", [])
+            if isinstance(candidate, list) and candidate:
+                quality_selected_articles = candidate
+        if quality_selected_articles:
+            quality_report_payload = generate_high_quality_reports(
+                outdir=run_outdir,
+                timestamp=timestamp,
+                selected_articles=quality_selected_articles,
+            )
         perf["report_seconds"] = round(time.perf_counter() - report_start, 3)
         run_history = storage.fetch_recent_runs(limit=8)
 
@@ -303,12 +568,22 @@ def run_pipeline(args, config: Dict[str, Any], logger: logging.Logger, verify_op
         perf["total_seconds"] = round(time.perf_counter() - total_start, 3)
 
         output_data = dict(payload)
+        if quality_report_payload is not None:
+            quality_output = dict(quality_payload or {})
+            quality_output["files"] = _basename_dict(quality_report_payload["files"])
+            quality_output["total_articles"] = len(quality_selected_articles)
+            quality_output["top_articles_summary"] = _build_quality_top_summary(quality_report_payload["top_articles"])
+            _attach_quality_search_payload(output_data, quality_output)
+
         meta = output_data.setdefault("meta", {})
         meta["run_id"] = run_id
         meta["report_only_source_run_id"] = source_run_id
         meta["time_window"] = time_window
         meta["report_files"] = _basename_dict(report_payload["files"])
         meta["viz_files"] = _basename_dict(viz_outputs)
+        meta["quality_report_files"] = (
+            _basename_dict(quality_report_payload["files"]) if quality_report_payload is not None else {}
+        )
         meta["output_dir"] = run_outdir
         meta["performance"] = perf
 
@@ -327,6 +602,8 @@ def run_pipeline(args, config: Dict[str, Any], logger: logging.Logger, verify_op
         "rate_limit_stats": {},
     }
     search_http: Optional[HttpClientFacade] = None
+    main_searcher: Optional[WebSearcher] = None
+    quality_payload_result: Optional[Dict[str, Any]] = None
 
     if args.demo:
         provider_stats = {"demo": {"enabled": True, "count": 2, "status": "ok"}}
@@ -379,6 +656,7 @@ def run_pipeline(args, config: Dict[str, Any], logger: logging.Logger, verify_op
             provider_experimental=providers_cfg["experimental"],
             logger=logger.getChild("search"),
         )
+        main_searcher = searcher
         urls = searcher.search(
             args.search,
             limit=config["search"]["limit"],
@@ -653,6 +931,118 @@ def run_pipeline(args, config: Dict[str, Any], logger: logging.Logger, verify_op
         logger=logger.getChild("viz"),
     )
     perf["viz_seconds"] = round(time.perf_counter() - viz_start, 3)
+
+    quality_cfg = config["quality_search"]
+    if args.search and quality_cfg.get("enabled", False) and main_searcher is not None:
+        quality_start = time.perf_counter()
+        quality_queries = _build_quality_queries(args.search, quality_cfg)
+        quality_searcher = WebSearcher(
+            http_client=search_http if search_http is not None else main_searcher.http_client,
+            timeout=config["search"]["timeout"],
+            request_delay=config["search"]["request_delay"],
+            enable_url_dedupe=dedupe_cfg["enable_url_dedupe"],
+            serpapi_enabled=config["search"]["providers"]["serpapi"]["enabled"],
+            serpapi_api_key=config["search"]["providers"]["serpapi"]["api_key"],
+            serpapi_engine=config["search"]["providers"]["serpapi"]["engine"],
+            serpapi_gl=config["search"]["providers"]["serpapi"]["gl"],
+            serpapi_hl=config["search"]["providers"]["serpapi"]["hl"],
+            enabled_providers=config["providers"]["enabled"],
+            provider_experimental=config["providers"]["experimental"],
+            logger=logger.getChild("quality.search"),
+        )
+        quality_urls, quality_query_stats = _collect_quality_urls(
+            searcher=quality_searcher,
+            queries=quality_queries,
+            per_query_limit=quality_cfg["per_query_limit"],
+            max_total_urls=quality_cfg["max_total_urls"],
+            include_weixin=not args.no_weixin,
+            include_overseas=not args.no_overseas,
+            time_window=time_window,
+        )
+
+        quality_crawler_metrics: Dict[str, Any] = {}
+        quality_articles: List[Dict[str, Any]] = []
+        quality_after_time_window: List[Dict[str, Any]] = []
+        quality_content_dedupe_stats: Dict[str, Any] = {}
+        quality_attachment_stats: Dict[str, Any] = {}
+        quality_report_payload: Optional[Dict[str, Any]] = None
+
+        if quality_urls:
+            quality_articles, quality_crawler_metrics = _crawl_urls_with_mode(
+                urls=quality_urls,
+                config=config,
+                dedupe_cfg=dedupe_cfg,
+                retry_cfg=retry_cfg,
+                verify_option=verify_option,
+                logger=logger.getChild("quality"),
+            )
+            quality_after_time_window = filter_articles_by_time_window(
+                quality_articles,
+                time_window=time_window,
+                include_undated=config["search"]["include_undated"],
+                logger=logger.getChild("quality.time_window"),
+            )
+            quality_after_time_window, quality_content_dedupe_stats = _dedupe_articles_by_content_hash(
+                quality_after_time_window,
+                enabled=dedupe_cfg["enable_content_hash_dedupe"],
+                logger=logger.getChild("quality.dedupe"),
+            )
+            quality_attachment_stats = annotate_articles_with_attachments(
+                quality_after_time_window,
+                enabled=attachment_cfg["enabled"],
+                min_score=attachment_cfg["min_score"],
+            )
+            if quality_after_time_window:
+                quality_report_payload = generate_high_quality_reports(
+                    outdir=run_outdir,
+                    timestamp=result["timestamp"],
+                    selected_articles=quality_after_time_window,
+                )
+
+        quality_payload_result = {
+            "enabled": True,
+            "executed": True,
+            "run_standalone_queries": bool(quality_cfg.get("run_standalone_queries", True)),
+            "run_combined_queries": bool(quality_cfg.get("run_combined_queries", True)),
+            "general_keywords": list(quality_cfg.get("general_keywords", [])),
+            "topic_keywords": list(quality_cfg.get("topic_keywords", [])),
+            "queries": quality_queries,
+            "query_stats": quality_query_stats,
+            "query_count": len(quality_queries),
+            "total_urls": len(quality_urls),
+            "crawled_articles": len(quality_articles),
+            "time_filtered_articles": len(quality_after_time_window),
+            "content_dedupe": quality_content_dedupe_stats,
+            "attachment_stats": quality_attachment_stats,
+            "crawler_metrics": quality_crawler_metrics,
+            "selected_articles": quality_after_time_window,
+            "files": _basename_dict(quality_report_payload["files"]) if quality_report_payload is not None else {},
+            "top_articles_summary": (
+                _build_quality_top_summary(quality_report_payload["top_articles"])
+                if quality_report_payload is not None
+                else []
+            ),
+        }
+        perf["quality_search_seconds"] = round(time.perf_counter() - quality_start, 3)
+    else:
+        quality_payload_result = {
+            "enabled": bool(quality_cfg.get("enabled", False)),
+            "executed": False,
+            "reason": "quality_search only runs in --search full mode",
+            "queries": [],
+            "query_stats": [],
+            "query_count": 0,
+            "total_urls": 0,
+            "crawled_articles": 0,
+            "time_filtered_articles": 0,
+            "content_dedupe": {},
+            "attachment_stats": {},
+            "crawler_metrics": {},
+            "selected_articles": [],
+            "files": {},
+            "top_articles_summary": [],
+        }
+
     perf["total_seconds"] = round(time.perf_counter() - total_start, 3)
 
     dedupe_stats = {
@@ -685,8 +1075,11 @@ def run_pipeline(args, config: Dict[str, Any], logger: logging.Logger, verify_op
     result["output_data"]["meta"]["proxy_stats"] = proxy_stats
     result["output_data"]["meta"]["report_files"] = _basename_dict(report_payload["files"])
     result["output_data"]["meta"]["viz_files"] = _basename_dict(viz_outputs)
+    result["output_data"]["meta"]["quality_report_files"] = quality_payload_result.get("files", {}) if quality_payload_result else {}
     result["output_data"]["meta"]["output_dir"] = run_outdir
     result["output_data"]["meta"]["run_history"] = run_history
+    if quality_payload_result is not None:
+        _attach_quality_search_payload(result["output_data"], quality_payload_result)
 
     with open(result["result_file"], "w", encoding="utf-8") as f:
         json.dump(result["output_data"], f, ensure_ascii=False, indent=2)
@@ -695,4 +1088,3 @@ def run_pipeline(args, config: Dict[str, Any], logger: logging.Logger, verify_op
     finalize(0, result_data=result["output_data"])
     logger.info("All done, files saved to: %s", run_outdir)
     return 0
-

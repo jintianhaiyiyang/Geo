@@ -182,6 +182,92 @@ def write_top100_markdown(outdir: str, timestamp: str, top_articles: List[Dict[s
     return output_path
 
 
+def write_high_quality_article_stats_top100_csv(outdir: str, timestamp: str, top_articles: List[Dict[str, Any]]) -> str:
+    output_path = os.path.join(outdir, f"high_quality_article_stats_top100_{timestamp}.csv")
+    fieldnames = [
+        "rank",
+        "title",
+        "url",
+        "publish_time",
+        "source",
+        "search_query",
+        "matched_types",
+        "matched_keywords",
+        "type_hit_count",
+        "advanced_score",
+        "has_attachment",
+        "attachment_score",
+        "content_hash",
+    ]
+    with open(output_path, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for idx, article in enumerate(top_articles, 1):
+            writer.writerow(
+                {
+                    "rank": idx,
+                    "title": article.get("title", ""),
+                    "url": article.get("url", ""),
+                    "publish_time": article.get("publish_time", ""),
+                    "source": article.get("source", ""),
+                    "search_query": article.get("search_query", ""),
+                    "matched_types": ";".join(article.get("matched_types", [])),
+                    "matched_keywords": ";".join(_flatten_keywords(article.get("matched_type_keywords", {}))),
+                    "type_hit_count": int(article.get("type_hit_count", 0)),
+                    "advanced_score": float(article.get("advanced_score", 0.0)),
+                    "has_attachment": bool(article.get("has_attachment", False)),
+                    "attachment_score": float(article.get("attachment_score", 0.0)),
+                    "content_hash": article.get("content_hash", ""),
+                }
+            )
+    return output_path
+
+
+def write_high_quality_top100_markdown(outdir: str, timestamp: str, top_articles: List[Dict[str, Any]]) -> str:
+    output_path = os.path.join(outdir, f"high_quality_top100_links_{timestamp}.md")
+    lines = [
+        "# High-Quality Keyword Top100 Articles",
+        "",
+        f"- total_articles: {len(top_articles)}",
+        "- ranking: data-sharing first > attachment first > type-hit-count > advanced_score > publish_time",
+        "",
+        "| Rank | Title | Source | Publish Time | Categories | Keywords | Score | Attachment |",
+        "|---:|---|---|---|---|---|---:|---:|",
+    ]
+    for idx, article in enumerate(top_articles, 1):
+        title = str(article.get("title", "")).replace("|", "\\|") or "(untitled)"
+        url = article.get("url", "")
+        link = f"[{title}]({url})" if url else title
+        source = str(article.get("source", "")).replace("|", "\\|")
+        publish = str(article.get("publish_time", "")).replace("|", "\\|")
+        types = ";".join(article.get("matched_types", []))
+        keywords = ";".join(_flatten_keywords(article.get("matched_type_keywords", {})))
+        score = float(article.get("advanced_score", 0.0))
+        attachment_flag = "Y" if bool(article.get("has_attachment")) else ""
+        lines.append(f"| {idx} | {link} | {source} | {publish} | {types} | {keywords} | {score:.2f} | {attachment_flag} |")
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return output_path
+
+
+def generate_high_quality_reports(
+    outdir: str,
+    timestamp: str,
+    selected_articles: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    top_articles = rank_top_articles(selected_articles, top_n=100)
+    top100_csv = write_high_quality_article_stats_top100_csv(outdir, timestamp, top_articles)
+    top100_md = write_high_quality_top100_markdown(outdir, timestamp, top_articles)
+    return {
+        "top_articles": top_articles,
+        "files": {
+            "high_quality_article_stats_top100_csv": top100_csv,
+            "high_quality_top100_markdown": top100_md,
+        },
+    }
+
+
 def generate_reports(
     outdir: str,
     timestamp: str,
@@ -202,4 +288,3 @@ def generate_reports(
             "top100_markdown": top100_md,
         },
     }
-

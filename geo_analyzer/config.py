@@ -89,7 +89,7 @@ DEFAULT_SERPAPI_API_KEY = ""
 DEFAULT_SERPAPI_ENGINE = "google"
 DEFAULT_SERPAPI_GL = "cn"
 DEFAULT_SERPAPI_HL = "zh-cn"
-DEFAULT_DB_PATH = "geo_monitor_v7.db"
+DEFAULT_DB_PATH = "geo_monitor_v8.db"
 DEFAULT_ENABLE_DB_WRITE = True
 DEFAULT_PROVIDERS_ENABLED = ["bing", "baidu", "wechat", "serpapi"]
 DEFAULT_PROVIDER_EXPERIMENTAL = {
@@ -103,6 +103,37 @@ DEFAULT_DATE_FROM = ""
 DEFAULT_DATE_TO = ""
 DEFAULT_ATTACHMENT_DETECTION_ENABLED = True
 DEFAULT_ATTACHMENT_MIN_SCORE = 1.5
+DEFAULT_QUALITY_SEARCH_ENABLED = True
+DEFAULT_QUALITY_SEARCH_GENERAL_KEYWORDS = [
+    "地理数据",
+    "空间数据",
+    "GIS数据",
+    "数据分享",
+    "数据发布",
+    "数据共享",
+    "数据链接",
+    "地理模型",
+    "大数据",
+]
+DEFAULT_QUALITY_SEARCH_TOPIC_KEYWORDS = [
+    "基础地理",
+    "DEM",
+    "地形",
+    "地貌",
+    "土壤",
+    "土地利用",
+    "土地覆盖",
+    "生态环境",
+    "气象",
+    "水文",
+    "人口",
+    "GDP",
+    "社会经济",
+]
+DEFAULT_QUALITY_SEARCH_RUN_STANDALONE_QUERIES = True
+DEFAULT_QUALITY_SEARCH_RUN_COMBINED_QUERIES = True
+DEFAULT_QUALITY_SEARCH_PER_QUERY_LIMIT = 3
+DEFAULT_QUALITY_SEARCH_MAX_TOTAL_URLS = 120
 
 DEFAULT_CORE_IDENTIFIERS = [
     "地理",
@@ -296,6 +327,15 @@ DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
         "enabled": DEFAULT_ATTACHMENT_DETECTION_ENABLED,
         "min_score": DEFAULT_ATTACHMENT_MIN_SCORE,
     },
+    "quality_search": {
+        "enabled": DEFAULT_QUALITY_SEARCH_ENABLED,
+        "general_keywords": DEFAULT_QUALITY_SEARCH_GENERAL_KEYWORDS,
+        "topic_keywords": DEFAULT_QUALITY_SEARCH_TOPIC_KEYWORDS,
+        "run_standalone_queries": DEFAULT_QUALITY_SEARCH_RUN_STANDALONE_QUERIES,
+        "run_combined_queries": DEFAULT_QUALITY_SEARCH_RUN_COMBINED_QUERIES,
+        "per_query_limit": DEFAULT_QUALITY_SEARCH_PER_QUERY_LIMIT,
+        "max_total_urls": DEFAULT_QUALITY_SEARCH_MAX_TOTAL_URLS,
+    },
     "pipeline": {
         "crawl_mode": DEFAULT_CRAWL_MODE,
     },
@@ -375,6 +415,18 @@ def _validate_string_list(value: Any, field_name: str) -> list[str]:
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ValueError(f"{field_name} 必须是字符串数组")
     return value
+
+
+def _normalize_distinct_string_list(values: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen = set()
+    for item in values:
+        candidate = str(item or "").strip()
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        deduped.append(candidate)
+    return deduped
 
 
 def _validate_provider_list(value: Any, field_name: str) -> list[str]:
@@ -492,6 +544,7 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
         "providers",
         "time_window",
         "attachment_detection",
+        "quality_search",
         "pipeline",
     )
     for section in expected_sections:
@@ -749,6 +802,35 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     attachment_cfg["min_score"] = _validate_non_negative_float(
         attachment_cfg.get("min_score"),
         "attachment_detection.min_score",
+    )
+
+    quality_cfg = config["quality_search"]
+    quality_cfg["enabled"] = _validate_bool(quality_cfg.get("enabled"), "quality_search.enabled")
+    quality_cfg["general_keywords"] = _normalize_distinct_string_list(
+        _validate_string_list(quality_cfg.get("general_keywords"), "quality_search.general_keywords")
+    )
+    quality_cfg["topic_keywords"] = _normalize_distinct_string_list(
+        _validate_string_list(quality_cfg.get("topic_keywords"), "quality_search.topic_keywords")
+    )
+    quality_cfg["run_standalone_queries"] = _validate_bool(
+        quality_cfg.get("run_standalone_queries"),
+        "quality_search.run_standalone_queries",
+    )
+    quality_cfg["run_combined_queries"] = _validate_bool(
+        quality_cfg.get("run_combined_queries"),
+        "quality_search.run_combined_queries",
+    )
+    if not quality_cfg["run_standalone_queries"] and not quality_cfg["run_combined_queries"]:
+        raise ValueError(
+            "quality_search.run_standalone_queries and quality_search.run_combined_queries cannot both be false"
+        )
+    quality_cfg["per_query_limit"] = _validate_positive_int(
+        quality_cfg.get("per_query_limit"),
+        "quality_search.per_query_limit",
+    )
+    quality_cfg["max_total_urls"] = _validate_positive_int(
+        quality_cfg.get("max_total_urls"),
+        "quality_search.max_total_urls",
     )
 
     pipeline_cfg = config["pipeline"]

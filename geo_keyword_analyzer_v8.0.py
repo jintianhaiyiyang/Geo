@@ -1,23 +1,23 @@
 ﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""微信/全网地理关键词分析工具 v7.0
+"""微信/全网地理关键词分析工具 v8.0
 
 示例:
 1) 全网搜索并分析（默认异步）
-   python geo_keyword_analyzer_v6.5.py --search "GIS 遥感 最新技术" --limit 20
+   python geo_keyword_analyzer_v8_0.py --search "GIS 遥感 最新技术" --limit 20
 
 2) 指定同步模式 + requests 后端
-   python geo_keyword_analyzer_v6.5.py --search "GIS 遥感" --crawl-mode sync --http-backend requests
+   python geo_keyword_analyzer_v8_0.py --search "GIS 遥感" --crawl-mode sync --http-backend requests
 
 3) 使用本地 JSON 进行分析
-   python geo_keyword_analyzer_v6.5.py --input raw_crawl.json
+   python geo_keyword_analyzer_v8_0.py --input raw_crawl.json
 
 4) 运行演示数据
-   python geo_keyword_analyzer_v6.5.py --demo
-   python geo_keyword_analyzer_v6.5.py --search "GIS 遥感 最新技术" --limit 20 --http-backend curl_cffi --max-retries 4 --request-delay 1.2 --timeout 20 --crawl-timeout 20 --include-undated
+   python geo_keyword_analyzer_v8_0.py --demo
+   python geo_keyword_analyzer_v8_0.py --search "GIS 遥感 最新技术" --limit 20 --http-backend curl_cffi --max-retries 4 --request-delay 1.2 --timeout 20 --crawl-timeout 20 --include-undated
 
 5) 使用增强 Stealth 模式（Playwright）
-   python geo_keyword_analyzer_v6.5.py --search "GIS 遥感 最新技术" --crawl-mode stealth --stealth-channel chrome --proxy-file proxies.txt --max-concurrency 3
+   python geo_keyword_analyzer_v8_0.py --search "GIS 遥感 最新技术" --crawl-mode stealth --stealth-channel chrome --proxy-file proxies.txt --max-concurrency 3
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ from geo_analyzer.utils import resolve_tls_verify, setup_logging
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="全自动地理关键词分析工具 v7.0")
+    parser = argparse.ArgumentParser(description="全自动地理关键词分析工具 v8.0")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--search", type=str, help='输入搜索关键词（如 "GIS 遥感"），自动全网检索并分析')
     group.add_argument("--input", type=str, help="指定本地 JSON 文件进行分析")
@@ -55,7 +55,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--config", type=str, default=None, help="YAML 配置文件路径")
     parser.add_argument("--outdir", type=str, default=".", help="结果输出目录")
-    parser.add_argument("--db-path", type=str, default=None, help="SQLite 持久化路径（默认 <outdir>/geo_monitor_v7.db）")
+    parser.add_argument("--db-path", type=str, default=None, help="SQLite 持久化路径（默认 <outdir>/geo_monitor_v8.db）")
     parser.add_argument("--no-db-write", action="store_true", help="关闭 SQLite 持久化")
     parser.add_argument("--report-only", action="store_true", help="仅基于数据库中最近成功结果重建报表")
     parser.add_argument("--scrape-only", action="store_true", help="仅执行抓取并写入中间产物/数据库，不做分析和报表")
@@ -189,12 +189,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     logger = setup_logging(config["logging"]["level"], config["logging"]["file"])
 
     if not effective_argv:
-        logger.info("欢迎使用地理关键词分析器 v7.0")
-        logger.info('1. 全网搜索: python geo_keyword_analyzer_v6.5.py --search "GIS 遥感技术"')
-        logger.info("2. 运行演示: python geo_keyword_analyzer_v6.5.py --demo")
-        logger.info("3. 使用配置: python geo_keyword_analyzer_v6.5.py --config config.example.yaml --search \"GIS\"")
+        logger.info("欢迎使用地理关键词分析器 v8.0")
+        logger.info('1. 全网搜索: python geo_keyword_analyzer_v8_0.py --search "GIS 遥感技术"')
+        logger.info("2. 运行演示: python geo_keyword_analyzer_v8_0.py --demo")
+        logger.info("3. 使用配置: python geo_keyword_analyzer_v8_0.py --config config.example.yaml --search \"GIS\"")
         logger.info(
-            "4. Stealth模式: python geo_keyword_analyzer_v6.5.py --search \"GIS\" --crawl-mode stealth --stealth-channel chrome --proxy-file proxies.txt"
+            "4. Stealth模式: python geo_keyword_analyzer_v8_0.py --search \"GIS\" --crawl-mode stealth --stealth-channel chrome --proxy-file proxies.txt"
         )
         return 0
 

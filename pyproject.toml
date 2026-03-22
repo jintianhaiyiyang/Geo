@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "geo-keyword-analyzer"
-version = "7.0.0"
-description = "Geo keyword analyzer with async crawl, dedupe, dashboard and reports."
+version = "8.0.0"
+description = "Geo keyword analyzer v8.0 with independent high-quality keyword search."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

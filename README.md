@@ -1,88 +1,116 @@
-# Geo Keyword Analyzer v7.0
+# Geo Keyword Analyzer v8.0 / 地理关键词分析器 v8.0
 
-Geo keyword analysis tool for GIS/remote-sensing/data-sharing topics.
+## 中文说明
 
-v7.0 keeps v6.5 CLI compatibility and adds:
-- SQLite monitoring persistence (`runs`/`articles`/`article_runs`/`attachments`)
-- Time window presets and custom date range
-- Attachment evidence detection and scoring
-- Provider registry with stable providers (`bing`/`baidu`/`wechat`/`serpapi`)
-- `--report-only` and `--scrape-only` modes
+### 项目简介
+`Geo Keyword Analyzer v8.0` 用于地理/GIS/遥感相关网页检索、抓取、筛选、统计与可视化。  
+本版本新增“高质量文章关键词搜索”独立分支，并保持主流程热门词分析不受影响。
 
-## Requirements
+### README 维护约束（必须遵守）
+- 每次修改 `README.md`，必须按你给定的要求进行更新。
+- 每次修改 `README.md`，必须保持中英文双语内容同步更新。
+- 每次修改 `README.md`，必须保证版本号、脚本名、命令示例与当前代码一致。
 
+### 版本重点（v8.0）
+- 入口脚本统一为：
+  - `geo_keyword_analyzer_v8_0.py`（推荐）
+  - `geo_keyword_analyzer_v8.0.py`（同样可用）
+- 默认数据库文件升级为：`geo_monitor_v8.db`
+- 新增 `quality_search` 独立分支：
+  - 默认启用
+  - 配置驱动（YAML）
+  - 同时支持“关键词单跑 + 主查询组合跑”
+  - 与主流程热门词统计完全隔离
+
+### 环境要求
 - Python `3.10+`
-- Install deps:
+- 安装依赖：
 
 ```bash
 pip install -r requirements-dev.txt
 ```
 
-- For stealth mode:
+- 如需 Stealth 抓取：
 
 ```bash
 playwright install chromium
 ```
 
-## Quick Start
-
-1. Demo run
-
-```bash
-python geo_keyword_analyzer_v6.5.py --demo --outdir out
-```
-
-2. Real search
+### 快速开始
+1. 演示数据
 
 ```bash
-python geo_keyword_analyzer_v6.5.py --search "GIS remote sensing latest technology" --outdir out
+python geo_keyword_analyzer_v8_0.py --demo --outdir out
 ```
 
-3. Time window preset
+2. 全网搜索
 
 ```bash
-python geo_keyword_analyzer_v6.5.py --search "GIS 遥感 数据共享" --time-preset week --outdir out
+python geo_keyword_analyzer_v8_0.py --search "GIS 遥感 最新技术" --outdir out
 ```
 
-4. Custom date range
+3. 仅抓取（不分析）
 
 ```bash
-python geo_keyword_analyzer_v6.5.py --search "GIS 遥感 数据共享" --date-from 2026-03-01 --date-to 2026-03-15 --outdir out
+python geo_keyword_analyzer_v8_0.py --search "GIS 遥感 数据共享" --scrape-only --outdir out
 ```
 
-5. Scrape-only mode
+4. 仅基于数据库重建报表
 
 ```bash
-python geo_keyword_analyzer_v6.5.py --search "GIS 遥感 数据共享" --scrape-only --outdir out
+python geo_keyword_analyzer_v8_0.py --report-only --outdir out
 ```
 
-6. Report-only mode (from DB latest successful run)
+5. 时间窗口（最近一周）
 
 ```bash
-python geo_keyword_analyzer_v6.5.py --report-only --outdir out
+python geo_keyword_analyzer_v8_0.py --search "GIS 遥感 数据共享" --time-preset week --outdir out
 ```
 
-## New CLI Options (v7.0)
+### 核心配置（run_config.yaml）
+`v8.0` 新增 `quality_search` 配置段（无 CLI 覆盖）：
 
-- `--db-path`: SQLite path (default `<outdir>/geo_monitor_v7.db`)
-- `--no-db-write`: disable SQLite persistence
-- `--report-only`: rebuild reports from latest DB run
-- `--scrape-only`: crawl + filter + dedupe + attachment detection only
-- `--time-preset {today,week,month}`
-- `--date-from`, `--date-to`
-- `--providers`: comma-separated provider list (example: `bing,baidu,wechat,serpapi`)
+```yaml
+quality_search:
+  enabled: true
+  general_keywords:
+    - "地理数据"
+    - "空间数据"
+    - "GIS数据"
+    - "数据分享"
+    - "数据发布"
+    - "数据共享"
+    - "数据链接"
+    - "地理模型"
+    - "大数据"
+  topic_keywords:
+    - "基础地理"
+    - "DEM"
+    - "地形"
+    - "地貌"
+    - "土壤"
+    - "土地利用"
+    - "土地覆盖"
+    - "生态环境"
+    - "气象"
+    - "水文"
+    - "人口"
+    - "GDP"
+    - "社会经济"
+  run_standalone_queries: true
+  run_combined_queries: true
+  per_query_limit: 3
+  max_total_urls: 120
+```
 
-All v6.5 options remain valid.
-
-## Output
-
-Each run writes to:
+### 结果输出
+每次运行输出到：
 
 ```text
 <outdir>/runs/<YYYYMMDD_HHMMSS>/
 ```
 
-Main artifacts:
+主流程文件：
 - `keyword_stats_<timestamp>.csv`
 - `article_stats_top100_<timestamp>.csv`
 - `top100_links_<timestamp>.md`
@@ -91,45 +119,121 @@ Main artifacts:
 - `knowledge_graph_<timestamp>.png`
 - `geo_analysis_result_<timestamp>.json`
 
-## SQLite Schema (v7.0)
+高质量分支独立文件：
+- `high_quality_article_stats_top100_<timestamp>.csv`
+- `high_quality_top100_links_<timestamp>.md`
 
-- `runs`: run-level metadata, status, payload snapshot
-- `articles`: upserted article snapshots by unique key (`content_hash|normalized_url`)
-- `article_runs`: run-to-article mapping with rank and scores
-- `attachments`: attachment evidence rows
+### 独立性说明（重要）
+- 高质量关键词搜索分支独立检索、独立抓取、独立报表。
+- 主流程的 `top_keywords` / `repeated_terms` 不会被高质量关键词列表直接影响。
+- 高质量结果写入 JSON 的 `quality_search` 区块，不覆盖主流程统计结果。
 
-## Provider Strategy
-
-Stable providers in v7.0:
-- `bing`
-- `baidu`
-- `wechat`
-- `serpapi` (optional key)
-
-Experimental placeholders (config only, disabled by default):
-- `google`
-- `xiaohongshu`
-- `bilibili`
-- `douyin`
-
-## Config
-
-See `run_config.yaml` for a full v7.0 example with new sections:
-- `storage`
-- `providers`
-- `time_window`
-- `attachment_detection`
-
-## Migration Notes (v6.5 -> v7.0)
-
-- Existing commands still work.
-- Existing config files still work; missing new sections are auto-filled by defaults.
-- `--input` now supports UTF-8 BOM JSON via `utf-8-sig`.
-- Non-object items in input arrays are dropped instead of crashing.
-
-## Tests
+### 测试
 
 ```bash
 pytest -q
 ```
 
+---
+
+## English
+
+### Overview
+`Geo Keyword Analyzer v8.0` is a GIS/geo-data focused crawler + analyzer pipeline for search, extraction, filtering, ranking, and reporting.  
+This release adds an independent high-quality keyword search branch without changing the main hot-term analysis flow.
+
+### README Maintenance Rules (Mandatory)
+- Every README update must follow your specified requirements.
+- Every README update must keep Chinese and English sections in sync.
+- Every README update must keep version/script/command examples aligned with the current code.
+
+### What is new in v8.0
+- Unified entry scripts:
+  - `geo_keyword_analyzer_v8_0.py` (recommended)
+  - `geo_keyword_analyzer_v8.0.py` (also supported)
+- Default SQLite path changed to `geo_monitor_v8.db`.
+- Added independent `quality_search` branch:
+  - enabled by default
+  - YAML-configurable
+  - runs both standalone keyword queries and combined queries (`main_query + keyword`)
+  - fully isolated from the main hot-term statistics
+
+### Requirements
+- Python `3.10+`
+- Install dependencies:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+- For stealth crawling:
+
+```bash
+playwright install chromium
+```
+
+### Quick Start
+1. Demo mode
+
+```bash
+python geo_keyword_analyzer_v8_0.py --demo --outdir out
+```
+
+2. Real search mode
+
+```bash
+python geo_keyword_analyzer_v8_0.py --search "GIS remote sensing latest technology" --outdir out
+```
+
+3. Scrape only
+
+```bash
+python geo_keyword_analyzer_v8_0.py --search "GIS remote sensing data sharing" --scrape-only --outdir out
+```
+
+4. Report only (from latest successful DB run)
+
+```bash
+python geo_keyword_analyzer_v8_0.py --report-only --outdir out
+```
+
+### Quality Search Config
+The `quality_search` YAML section controls the independent high-quality branch:
+- `enabled`
+- `general_keywords`
+- `topic_keywords`
+- `run_standalone_queries`
+- `run_combined_queries`
+- `per_query_limit`
+- `max_total_urls`
+
+### Outputs
+Run outputs are written to:
+
+```text
+<outdir>/runs/<YYYYMMDD_HHMMSS>/
+```
+
+Main outputs:
+- `keyword_stats_<timestamp>.csv`
+- `article_stats_top100_<timestamp>.csv`
+- `top100_links_<timestamp>.md`
+- `geo_dashboard_<timestamp>.html`
+- `wordcloud_<timestamp>.png`
+- `knowledge_graph_<timestamp>.png`
+- `geo_analysis_result_<timestamp>.json`
+
+Independent high-quality outputs:
+- `high_quality_article_stats_top100_<timestamp>.csv`
+- `high_quality_top100_links_<timestamp>.md`
+
+### Isolation Guarantee
+- High-quality search runs in a separate retrieval/crawl/report path.
+- Main `top_keywords` and `repeated_terms` are not directly driven by the high-quality keyword list.
+- High-quality results are stored under the `quality_search` block in the result JSON.
+
+### Test
+
+```bash
+pytest -q
+```

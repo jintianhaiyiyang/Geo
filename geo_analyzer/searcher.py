@@ -226,9 +226,9 @@ class WebSearcher:
                         "enabled": True,
                         "count": 0,
                         "status": "placeholder",
-                        "note": "Provider placeholder in v7.0",
+                        "note": "Provider placeholder in v8.0",
                     }
-                    self.logger.warning("Provider [%s] is a v7.0 placeholder and currently returns no data.", placeholder)
+                    self.logger.warning("Provider [%s] is a v8.0 placeholder and currently returns no data.", placeholder)
                 else:
                     provider_stats[placeholder] = {
                         "enabled": False,
